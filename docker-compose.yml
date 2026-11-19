@@ -1,0 +1,43 @@
+# MySQL 8, for running the engine on the production-shaped path.
+#
+# The demos and the test suite do NOT need this: they default to SQLite so the
+# repository runs from a bare checkout. Compose is here for the claim that
+# matters at scale - FOR UPDATE SKIP LOCKED, which SQLite does not have.
+#
+#   docker compose up -d
+#   # set DB_DRIVER=mysql in .env
+#   php bin/migrate.php
+#   php bin/worker.php --interval=5   # run several, that is the point
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: relay
+      MYSQL_USER: relay
+      # Development only. Nothing in this file is a credential that exists
+      # anywhere else, and .env is gitignored.
+      MYSQL_PASSWORD: relay
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # The default is 28800s. Lowered here on purpose: a worker is a long-lived
+      # process that can sit idle between cycles, and a connection dying under
+      # it is a real production case worth being able to reproduce locally.
+      - --wait-timeout=120
+    healthcheck:
+      # Compose reports "healthy" only once the server actually answers, so
+      # `up -d` followed immediately by a migration does not race the boot.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-prelay"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+volumes:
+  mysql-data:

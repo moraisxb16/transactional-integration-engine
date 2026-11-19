@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: PHP ${{ matrix.php }} · SQLite
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The lower bound is what composer.json claims to support. Testing only
+        # the newest version means the claim goes unverified until someone on
+        # 8.2 clones it and it does not run.
+        php: ['8.2', '8.3', '8.4']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo, pdo_sqlite, mbstring
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Lint
+        run: find src bin tests -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
+
+      - name: Tests
+        run: vendor/bin/phpunit
+
+      # The demos assert their own outcomes and exit non-zero on failure, so
+      # running them here keeps the README honest: if the output in it stops
+      # being true, CI says so.
+      - name: Demonstrations
+        run: php bin/demo.php
+
+  mysql:
+    name: PHP 8.3 · MySQL 8
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: relay
+          MYSQL_USER: relay
+          MYSQL_PASSWORD: relay
+          MYSQL_ROOT_PASSWORD: root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -prelay"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo, pdo_mysql, mbstring
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      # This is the job that matters: FOR UPDATE SKIP LOCKED only exists here,
+      # and the SQLite suite cannot exercise it.
+      - name: Tests against MySQL
+        env:
+          DB_DRIVER: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: relay
+          DB_USER: relay
+          DB_PASSWORD: relay
+        run: vendor/bin/phpunit
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # A scanner cannot prove the absence of a secret, but it reliably catches
+      # the careless case - a token pasted into a fixture, a .env committed by
+      # muscle memory.
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

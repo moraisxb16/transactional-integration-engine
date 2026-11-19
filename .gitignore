@@ -1,0 +1,14 @@
+/vendor/
+/var/
+/.env
+/.env.*
+!/.env.example
+/coverage/
+.phpunit.result.cache
+.phpunit.cache/
+*.log
+*.sqlite
+*.sqlite-journal
+.DS_Store
+.idea/
+.vscode/
